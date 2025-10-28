@@ -198,6 +198,7 @@
             const dataFlags = wialon.item.Unit.dataFlag.base | wialon.item.Unit.dataFlag.sensors;
 
             console.log('Fetching sensors for unit ID:', unitId);  // Debug log
+            console.log('Data Flags:', dataFlags);
 
             session.searchItem(unitId, dataFlags, (code, data) => {
                 console.log('Sensors callback fired:', { code, hasData: !!data });  // Debug log
