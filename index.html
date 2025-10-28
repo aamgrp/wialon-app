@@ -21,12 +21,13 @@
         .y-axis-box { width: 200px; }
         .y-axis-box select { width: 100%; height: 120px; }
         .combined-row { display: flex; justify-content: space-between; align-items: flex-start; }
+        .panel { flex: 1; }
         .left-panel { flex: 1; margin-right: 20px; }
         .right-panel { flex: 1; }
     </style>
 </head>
 <body>
-    <h1>Wialon Sensor Plotter</h1>
+    <h1>AAMG Sensor Visualiser</h1>
     
     <div id="loginForm">
         <label>Server: 
@@ -38,45 +39,41 @@
         <label>Username: <input type="text" id="username" required></label><br>
         <label>Password: <input type="password" id="password" required></label><br>
         <button type="submit">Login</button>
-        <p><small>For App Launcher: Ensure "Authorize hash" is enabled in Apps Configurator.</small></p>
     </div>
     
     <div id="combinedSection" class="hidden section combined-row">
-        <div class="left-panel">
-            <h3>All Units</h3>
-            <label>Select Units: 
-                <select id="unitSelect" multiple size="10">
-                    <option value="">Loading units...</option>
-                </select>
-            </label>
+        <div class="panel">
+            <h3>Units</h3>
+            <select id="unitSelect" multiple size="10">
+                <option value="">Loading units...</option>
+            </select>
             <button id="loadSensors">Load Sensors</button>
         </div>
-        <div class="right-panel">
-            <h3>Sensors Assignment</h3>
+        <div class="panel">
+            <h3>Sensors</h3>
             <div class="transfer-box">
-                <label>Available Sensors:</label>
                 <select id="availableSensors" multiple size="10">
                     <option value="">No sensors</option>
                 </select>
             </div>
-            <div class="transfer-btns">
-                <button id="addToY1">&gt;&gt; Y1</button><br>
-                <button id="addToY2">&gt;&gt; Y2</button>
-            </div>
-            <div class="y-axis-targets">
-                <div class="y-axis-box">
-                    <label>Y-Axis 1 (Left):</label>
-                    <select id="y1Sensors" multiple size="8"></select>
-                    <div class="transfer-btns">
-                        <button id="removeFromY1">&lt;&lt; Remove</button>
-                    </div>
+        </div>
+        <div class="transfer-btns panel">
+            <button id="addToY1">&gt;&gt; Y1</button><br>
+            <button id="addToY2">&gt;&gt; Y2</button>
+        </div>
+        <div class="panel">
+            <div class="y-axis-box">
+                <label>Y-Axis 1 (Left):</label>
+                <select id="y1Sensors" multiple size="8"></select>
+                <div class="transfer-btns">
+                    <button id="removeFromY1">&lt;&lt; Remove</button>
                 </div>
-                <div class="y-axis-box">
-                    <label>Y-Axis 2 (Right):</label>
-                    <select id="y2Sensors" multiple size="8"></select>
-                    <div class="transfer-btns">
-                        <button id="removeFromY2">&lt;&lt; Remove</button>
-                    </div>
+            </div>
+            <div class="y-axis-box">
+                <label>Y-Axis 2 (Right):</label>
+                <select id="y2Sensors" multiple size="8"></select>
+                <div class="transfer-btns">
+                    <button id="removeFromY2">&lt;&lt; Remove</button>
                 </div>
             </div>
         </div>
