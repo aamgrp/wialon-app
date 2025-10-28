@@ -20,6 +20,9 @@
         .y-axis-targets { display: flex; justify-content: space-around; }
         .y-axis-box { width: 200px; }
         .y-axis-box select { width: 100%; height: 120px; }
+        .combined-row { display: flex; justify-content: space-between; align-items: flex-start; }
+        .left-panel { flex: 1; margin-right: 20px; }
+        .right-panel { flex: 1; }
     </style>
 </head>
 <body>
@@ -38,8 +41,8 @@
         <p><small>For App Launcher: Ensure "Authorize hash" is enabled in Apps Configurator.</small></p>
     </div>
     
-    <div id="unitsSection" class="hidden">
-        <div class="section">
+    <div id="combinedSection" class="hidden section combined-row">
+        <div class="left-panel">
             <h3>All Units</h3>
             <label>Select Units: 
                 <select id="unitSelect" multiple size="10">
@@ -48,10 +51,7 @@
             </label>
             <button id="loadSensors">Load Sensors</button>
         </div>
-    </div>
-    
-    <div id="sensorsSection" class="hidden">
-        <div class="section">
+        <div class="right-panel">
             <h3>Sensors Assignment</h3>
             <div class="transfer-box">
                 <label>Available Sensors:</label>
@@ -67,19 +67,26 @@
                 <div class="y-axis-box">
                     <label>Y-Axis 1 (Left):</label>
                     <select id="y1Sensors" multiple size="8"></select>
+                    <div class="transfer-btns">
+                        <button id="removeFromY1">&lt;&lt; Remove</button>
+                    </div>
                 </div>
                 <div class="y-axis-box">
                     <label>Y-Axis 2 (Right):</label>
                     <select id="y2Sensors" multiple size="8"></select>
+                    <div class="transfer-btns">
+                        <button id="removeFromY2">&lt;&lt; Remove</button>
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="date-row">
-            <label>Start Date: <input type="date" id="startDate"></label>
-            <label>End Date: <input type="date" id="endDate"></label>
-        </div>
-        <button id="plotBtn">Plot Data</button>
     </div>
+    
+    <div class="date-row hidden" id="dateRow">
+        <label>Start Date: <input type="date" id="startDate"></label>
+        <label>End Date: <input type="date" id="endDate"></label>
+    </div>
+    <button id="plotBtn" class="hidden">Plot Data</button>
     
     <div id="chart" class="hidden"></div>
     
@@ -156,7 +163,7 @@
             sess.loadLibrary('unitSensors'); // Load sensor library
             fetchUnits();
             document.getElementById('loginForm').classList.add('hidden');
-            document.getElementById('unitsSection').classList.remove('hidden');
+            document.getElementById('combinedSection').classList.remove('hidden');
         }
 
         // App launcher init
@@ -271,11 +278,13 @@
 
             populateAvailableSensors();
 
-            // Set default dates
+            // Set default dates and show plot button
             const now = new Date();
             const yesterday = new Date(now.getTime() - 86400000);
             document.getElementById('startDate').value = yesterday.toISOString().split('T')[0];
             document.getElementById('endDate').value = now.toISOString().split('T')[0];
+            document.getElementById('dateRow').classList.remove('hidden');
+            document.getElementById('plotBtn').classList.remove('hidden');
         });
 
         // Populate available sensors
@@ -288,7 +297,6 @@
                 option.textContent = `${sensor.name} (Unit: ${sensor.unitId}, Index: ${sensor.index})`;
                 availSensors.appendChild(option);
             });
-            document.getElementById('sensorsSection').classList.remove('hidden');
         }
 
         // Transfer to Y-axes
@@ -302,6 +310,20 @@
             const avail = document.getElementById('availableSensors');
             const y2 = document.getElementById('y2Sensors');
             Array.from(avail.selectedOptions).forEach(opt => y2.appendChild(opt));
+        });
+
+        // Remove from Y1
+        document.getElementById('removeFromY1').addEventListener('click', () => {
+            const y1 = document.getElementById('y1Sensors');
+            const avail = document.getElementById('availableSensors');
+            Array.from(y1.selectedOptions).forEach(opt => avail.appendChild(opt));
+        });
+
+        // Remove from Y2
+        document.getElementById('removeFromY2').addEventListener('click', () => {
+            const y2 = document.getElementById('y2Sensors');
+            const avail = document.getElementById('availableSensors');
+            Array.from(y2.selectedOptions).forEach(opt => avail.appendChild(opt));
         });
 
         // Plot data
