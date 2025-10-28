@@ -163,6 +163,7 @@
             console.log('Logged in successfully');
             const sess = wialon.core.Session.getInstance();
             sess.loadLibrary('unitSensors'); // Load sensor library
+            sess.loadLibrary('itemResource'); // Load resource library for children
             fetchSites();
             document.getElementById('loginForm').classList.add('hidden');
             document.getElementById('sitesSection').classList.remove('hidden');
@@ -258,59 +259,54 @@
             const unitsContainer = document.getElementById('unitsTransfer');
             unitsContainer.innerHTML = '';
 
+            let loadedSites = 0;
             selectedSites.forEach(siteId => {
-                const site = sites.find(s => s.getId() === siteId);
-                if (!site) return;
-
-                const siteDiv = document.createElement('div');
-                siteDiv.innerHTML = `<h4>${site.getName()}</h4>`;
-                const transferDiv = document.createElement('div');
-                transferDiv.className = 'transfer-box';
-                transferDiv.innerHTML = `
-                    <label>Available Units:</label>
-                    <select id="availUnits_${siteId}" multiple size="5"></select>
-                    <div class="transfer-btns">
-                        <button onclick="moveToSelected('availUnits_${siteId}', 'selUnits_${siteId}')">&gt;</button><br>
-                        <button onclick="moveToAvailable('selUnits_${siteId}', 'availUnits_${siteId}')">&lt;</button>
-                    </div>
-                    <label>Selected Units:</label>
-                    <select id="selUnits_${siteId}" multiple size="5"></select>
-                `;
-                siteDiv.appendChild(transferDiv);
-                unitsContainer.appendChild(siteDiv);
-
-                // Fetch units for site
-                const searchSpec = {
-                    itemsType: 'avl_unit',
-                    propName: '',
-                    propValueMask: '',
-                    sortType: 'sys_name',
-                    propType: 'property',
-                    or_logic: 0
-                };
-                const params = {
-                    spec: searchSpec,
-                    force: 1,
-                    flags: wialon.item.Unit.dataFlag.base,
-                    from: 0,
-                    to: 0
-                };
-                const remote = wialon.core.Remote.getInstance();
-                remote.request('core/search_items', params, (code, resp) => {
-                    if (code) return;
-                    const siteUnits = resp.items || [];
+                const sess = wialon.core.Session.getInstance();
+                const dataFlags = wialon.item.Resource.dataFlag.base | wialon.item.Resource.dataFlag.children;
+                sess.searchItem(siteId, dataFlags, (code, data) => {
+                    if (code) {
+                        console.error('Failed to load site:', code);
+                        loadedSites++;
+                        if (loadedSites === selectedSites.length) {
+                            document.getElementById('unitsSection').classList.remove('hidden');
+                        }
+                        return;
+                    }
+                    const site = data.item;
+                    const siteUnits = site.getUnits() || [];
                     selectedSiteUnits[siteId] = [];
+
+                    const siteDiv = document.createElement('div');
+                    siteDiv.innerHTML = `<h4>${site.getName()}</h4>`;
+                    const transferDiv = document.createElement('div');
+                    transferDiv.className = 'transfer-box';
+                    transferDiv.innerHTML = `
+                        <label>Available Units:</label>
+                        <select id="availUnits_${siteId}" multiple size="5"></select>
+                        <div class="transfer-btns">
+                            <button type="button" onclick="moveToSelected('availUnits_${siteId}', 'selUnits_${siteId}')">&gt;</button><br>
+                            <button type="button" onclick="moveToAvailable('selUnits_${siteId}', 'availUnits_${siteId}')">&lt;</button>
+                        </div>
+                        <label>Selected Units:</label>
+                        <select id="selUnits_${siteId}" multiple size="5"></select>
+                    `;
+                    siteDiv.appendChild(transferDiv);
+                    unitsContainer.appendChild(siteDiv);
+
                     const availSelect = document.getElementById(`availUnits_${siteId}`);
                     siteUnits.forEach(u => {
                         const option = document.createElement('option');
-                        option.value = u.id;
-                        option.textContent = u.nm;
+                        option.value = u.getId();
+                        option.textContent = u.getName();
                         availSelect.appendChild(option);
                     });
+
+                    loadedSites++;
+                    if (loadedSites === selectedSites.length) {
+                        document.getElementById('unitsSection').classList.remove('hidden');
+                    }
                 });
             });
-
-            document.getElementById('unitsSection').classList.remove('hidden');
         });
 
         // Helper functions for unit transfer
@@ -352,6 +348,10 @@
                 sess.searchItem(unitId, dataFlags, (code, data) => {
                     if (code) {
                         console.error('Failed to fetch unit sensors:', code);
+                        loaded++;
+                        if (loaded === selectedUnits.length) {
+                            populateAvailableSensors();
+                        }
                         return;
                     }
                     const unit = data.item;
@@ -372,6 +372,12 @@
                     }
                 });
             });
+
+            // Set default dates
+            const now = new Date();
+            const yesterday = new Date(now.getTime() - 86400000);
+            document.getElementById('startDate').value = yesterday.toISOString().split('T')[0];
+            document.getElementById('endDate').value = now.toISOString().split('T')[0];
         });
 
         // Populate available sensors
@@ -400,19 +406,12 @@
             Array.from(avail.selectedOptions).forEach(opt => y2.appendChild(opt));
         });
 
-        // Set default dates
-        document.getElementById('loadSensors').addEventListener('click', () => {
-            // ... (existing code)
-            const now = new Date();
-            const yesterday = new Date(now.getTime() - 86400000);
-            document.getElementById('startDate').value = yesterday.toISOString().split('T')[0];
-            document.getElementById('endDate').value = now.toISOString().split('T')[0];
-        });
-
         // Plot data
         document.getElementById('plotBtn').addEventListener('click', () => {
-            const y1Sensors = Array.from(document.getElementById('y1Sensors').options).map(opt => opt.value.split('_').map(Number));
-            const y2Sensors = Array.from(document.getElementById('y2Sensors').options).map(opt => opt.value.split('_').map(Number));
+            const y1Options = document.getElementById('y1Sensors');
+            const y2Options = document.getElementById('y2Sensors');
+            const y1Sensors = Array.from(y1Options.options).map(opt => opt.value.split('_').map(Number));
+            const y2Sensors = Array.from(y2Options.options).map(opt => opt.value.split('_').map(Number));
             const selectedSensors = [...y1Sensors, ...y2Sensors];  // Flat [unitId, index]
             if (selectedSensors.length === 0) {
                 alert('Select sensors for Y-axes');
