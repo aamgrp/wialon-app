@@ -13,6 +13,13 @@
         #loginForm select { margin: 5px; }
         .date-row { display: flex; align-items: center; margin: 10px 0; }
         .date-row label { margin-right: 10px; }
+        .section { margin-bottom: 20px; padding: 10px; border: 1px solid #ccc; }
+        .transfer-box { display: inline-block; vertical-align: top; margin: 5px; }
+        .transfer-box select { width: 150px; height: 150px; }
+        .transfer-btns { display: block; text-align: center; margin: 10px 0; }
+        .y-axis-targets { display: flex; justify-content: space-around; }
+        .y-axis-box { width: 200px; }
+        .y-axis-box select { width: 100%; height: 120px; }
     </style>
 </head>
 <body>
@@ -31,21 +38,50 @@
         <p><small>For App Launcher: Ensure "Authorize hash" is enabled in Apps Configurator.</small></p>
     </div>
     
+    <div id="sitesSection" class="hidden">
+        <div class="section">
+            <h3>Sites</h3>
+            <label>Site: 
+                <select id="siteSelect" multiple size="5">
+                    <option value="">Loading sites...</option>
+                </select>
+            </label>
+            <button id="loadUnits">Load Units</button>
+        </div>
+    </div>
+    
     <div id="unitsSection" class="hidden">
-        <label>Select Unit: 
-            <select id="unitSelect">
-                <option value="">Select a unit</option>
-            </select>
-        </label>
-        <button id="loadSensors">Load Sensors</button>
+        <div class="section">
+            <h3>Units by Site</h3>
+            <div id="unitsTransfer"></div>
+            <button id="loadSensors">Load Sensors</button>
+        </div>
     </div>
     
     <div id="sensorsSection" class="hidden">
-        <label>Sensors: 
-            <select id="sensorSelect" multiple size="5">
-                <option value="">No sensors</option>
-            </select>
-        </label><br>
+        <div class="section">
+            <h3>Sensors Assignment</h3>
+            <div class="transfer-box">
+                <label>Available Sensors:</label>
+                <select id="availableSensors" multiple size="10">
+                    <option value="">No sensors</option>
+                </select>
+            </div>
+            <div class="transfer-btns">
+                <button id="addToY1">&gt;&gt; Y1</button><br>
+                <button id="addToY2">&gt;&gt; Y2</button>
+            </div>
+            <div class="y-axis-targets">
+                <div class="y-axis-box">
+                    <label>Y-Axis 1 (Left):</label>
+                    <select id="y1Sensors" multiple size="8"></select>
+                </div>
+                <div class="y-axis-box">
+                    <label>Y-Axis 2 (Right):</label>
+                    <select id="y2Sensors" multiple size="8"></select>
+                </div>
+            </div>
+        </div>
         <div class="date-row">
             <label>Start Date: <input type="date" id="startDate"></label>
             <label>End Date: <input type="date" id="endDate"></label>
@@ -58,8 +94,9 @@
     <script>
         let baseUrl = null;
         let session = null;
-        let units = [];
-        let sensors = [];
+        let sites = [];
+        let selectedSiteUnits = {};  // {siteId: [unitIds]}
+        let allSensors = [];  // Flat list of {unitId, sensor}
         let chart = null;
 
         // Initialize ECharts
@@ -126,9 +163,9 @@
             console.log('Logged in successfully');
             const sess = wialon.core.Session.getInstance();
             sess.loadLibrary('unitSensors'); // Load sensor library
-            fetchUnits();
+            fetchSites();
             document.getElementById('loginForm').classList.add('hidden');
-            document.getElementById('unitsSection').classList.remove('hidden');
+            document.getElementById('sitesSection').classList.remove('hidden');
         }
 
         // App launcher init
@@ -184,72 +221,188 @@
             }
         });
 
-        // Fetch units using updateDataFlags (loads sensors upfront)
-        function fetchUnits() {
-            const sess = wialon.core.Session.getInstance();
-            const flags = wialon.item.Item.dataFlag.base | wialon.item.Unit.dataFlag.sensors;
+        // Fetch sites (resources)
+        function fetchSites() {
+            const searchSpec = {
+                itemsType: 'avl_resource',
+                propName: 'sys_name',
+                propValueMask: '*',
+                sortType: 'sys_name'
+            };
+            const dataFlags = wialon.item.Item.dataFlag.base;
 
-            sess.updateDataFlags(
-                [{ type: 'type', data: 'avl_unit', flags: flags, mode: 0 }],
-                (code) => {
-                    console.log('Units updateDataFlags callback:', { code });
-                    if (code) {
-                        console.error('Units load error:', code, wialon.core.Errors.getErrorText(code));
-                        alert('Failed to fetch units: ' + wialon.core.Errors.getErrorText(code));
-                        return;
-                    }
-                    units = sess.getItems('avl_unit') || [];
-                    const select = document.getElementById('unitSelect');
-                    select.innerHTML = '<option value="">Select a unit</option>';
-                    units.forEach(unit => {
-                        const option = document.createElement('option');
-                        option.value = unit.getId();
-                        option.textContent = unit.getName();
-                        select.appendChild(option);
-                    });
-                    console.log('Units loaded:', units.length);
+            const sess = wialon.core.Session.getInstance();
+            sess.searchItems(searchSpec, true, dataFlags, 0, 0, (code, data) => {
+                if (code) {
+                    alert('Failed to fetch sites: ' + wialon.core.Errors.getErrorText(code));
+                    return;
                 }
-            );
+                sites = data.items || [];
+                const select = document.getElementById('siteSelect');
+                select.innerHTML = '<option value="">Select sites</option>';
+                sites.forEach(site => {
+                    const option = document.createElement('option');
+                    option.value = site.getId();
+                    option.textContent = site.getName();
+                    select.appendChild(option);
+                });
+            });
         }
 
-        // Load sensors using getItem and getSensors
+        // Load units for selected sites
+        document.getElementById('loadUnits').addEventListener('click', () => {
+            const selectedSites = Array.from(document.getElementById('siteSelect').selectedOptions).map(opt => parseInt(opt.value));
+            if (selectedSites.length === 0) return;
+
+            selectedSiteUnits = {};
+            const unitsContainer = document.getElementById('unitsTransfer');
+            unitsContainer.innerHTML = '';
+
+            selectedSites.forEach(siteId => {
+                const site = sites.find(s => s.getId() === siteId);
+                if (!site) return;
+
+                const siteDiv = document.createElement('div');
+                siteDiv.innerHTML = `<h4>${site.getName()}</h4>`;
+                const transferDiv = document.createElement('div');
+                transferDiv.className = 'transfer-box';
+                transferDiv.innerHTML = `
+                    <label>Available Units:</label>
+                    <select id="availUnits_${siteId}" multiple size="5"></select>
+                    <div class="transfer-btns">
+                        <button onclick="moveToSelected('availUnits_${siteId}', 'selUnits_${siteId}')">&gt;</button><br>
+                        <button onclick="moveToAvailable('selUnits_${siteId}', 'availUnits_${siteId}')">&lt;</button>
+                    </div>
+                    <label>Selected Units:</label>
+                    <select id="selUnits_${siteId}" multiple size="5"></select>
+                `;
+                siteDiv.appendChild(transferDiv);
+                unitsContainer.appendChild(siteDiv);
+
+                // Fetch units for site
+                const searchSpec = {
+                    itemsType: 'avl_unit',
+                    propName: '',
+                    propValueMask: '',
+                    sortType: 'sys_name',
+                    propType: 'property',
+                    or_logic: 0
+                };
+                const params = {
+                    spec: searchSpec,
+                    force: 1,
+                    flags: wialon.item.Unit.dataFlag.base,
+                    from: 0,
+                    to: 0
+                };
+                const remote = wialon.core.Remote.getInstance();
+                remote.request('core/search_items', params, (code, resp) => {
+                    if (code) return;
+                    const siteUnits = resp.items || [];
+                    selectedSiteUnits[siteId] = [];
+                    const availSelect = document.getElementById(`availUnits_${siteId}`);
+                    siteUnits.forEach(u => {
+                        const option = document.createElement('option');
+                        option.value = u.id;
+                        option.textContent = u.nm;
+                        availSelect.appendChild(option);
+                    });
+                });
+            });
+
+            document.getElementById('unitsSection').classList.remove('hidden');
+        });
+
+        // Helper functions for unit transfer
+        function moveToSelected(availId, selId) {
+            const avail = document.getElementById(availId);
+            const sel = document.getElementById(selId);
+            Array.from(avail.selectedOptions).forEach(opt => sel.appendChild(opt));
+        }
+
+        function moveToAvailable(selId, availId) {
+            const sel = document.getElementById(selId);
+            const avail = document.getElementById(availId);
+            Array.from(sel.selectedOptions).forEach(opt => avail.appendChild(opt));
+        }
+
+        // Load sensors for selected units
         document.getElementById('loadSensors').addEventListener('click', () => {
-            const unitId = parseInt(document.getElementById('unitSelect').value);
-            if (!unitId) return;
+            allSensors = [];
+            const availSensors = document.getElementById('availableSensors');
+            availSensors.innerHTML = '<option value="">Loading...</option>';
 
-            console.log('Fetching sensors for unit ID:', unitId);
+            // Collect selected units across sites
+            const selectedUnits = [];
+            Object.keys(selectedSiteUnits).forEach(siteId => {
+                const selSelect = document.getElementById(`selUnits_${siteId}`);
+                Array.from(selSelect.options).forEach(opt => selectedUnits.push(parseInt(opt.value)));
+            });
 
-            const sess = wialon.core.Session.getInstance();
-            const unit = sess.getItem(unitId);
-            if (!unit) {
-                alert('Unit not found');
+            if (selectedUnits.length === 0) {
+                alert('Select units first');
                 return;
             }
 
-            const sensObj = unit.getSensors() || {};
-            sensors = [];
-            for (var i in sensObj) {
-                const fullSensor = sensObj[i];
-                sensors.push({
-                    index: parseInt(i),
-                    id: fullSensor.id,
-                    name: fullSensor.n,
-                    full: fullSensor  // Keep full SDK sensor object
+            // Fetch sensors for each unit
+            let loaded = 0;
+            selectedUnits.forEach(unitId => {
+                const dataFlags = wialon.item.Unit.dataFlag.base | wialon.item.Unit.dataFlag.sensors;
+                const sess = wialon.core.Session.getInstance();
+                sess.searchItem(unitId, dataFlags, (code, data) => {
+                    if (code) {
+                        console.error('Failed to fetch unit sensors:', code);
+                        return;
+                    }
+                    const unit = data.item;
+                    const sensObj = unit.getSensors() || {};
+                    for (var i in sensObj) {
+                        const fullSensor = sensObj[i];
+                        allSensors.push({
+                            unitId: unitId,
+                            index: parseInt(i),
+                            id: fullSensor.id,
+                            name: fullSensor.n,
+                            full: fullSensor
+                        });
+                    }
+                    loaded++;
+                    if (loaded === selectedUnits.length) {
+                        populateAvailableSensors();
+                    }
                 });
-            }
-            console.log('Sensors loaded:', sensors.length);
+            });
+        });
 
-            const select = document.getElementById('sensorSelect');
-            select.innerHTML = '';
-            sensors.forEach(sensor => {
+        // Populate available sensors
+        function populateAvailableSensors() {
+            const availSensors = document.getElementById('availableSensors');
+            availSensors.innerHTML = '';
+            allSensors.forEach(sensor => {
                 const option = document.createElement('option');
-                option.value = sensor.index;
-                option.textContent = `${sensor.name} (ID: ${sensor.id})`;
-                select.appendChild(option);
+                option.value = `${sensor.unitId}_${sensor.index}`;
+                option.textContent = `${sensor.name} (Unit: ${sensor.unitId}, Index: ${sensor.index})`;
+                availSensors.appendChild(option);
             });
             document.getElementById('sensorsSection').classList.remove('hidden');
+        }
 
-            // Set default dates to last 24 hours
+        // Transfer to Y-axes
+        document.getElementById('addToY1').addEventListener('click', () => {
+            const avail = document.getElementById('availableSensors');
+            const y1 = document.getElementById('y1Sensors');
+            Array.from(avail.selectedOptions).forEach(opt => y1.appendChild(opt));
+        });
+
+        document.getElementById('addToY2').addEventListener('click', () => {
+            const avail = document.getElementById('availableSensors');
+            const y2 = document.getElementById('y2Sensors');
+            Array.from(avail.selectedOptions).forEach(opt => y2.appendChild(opt));
+        });
+
+        // Set default dates
+        document.getElementById('loadSensors').addEventListener('click', () => {
+            // ... (existing code)
             const now = new Date();
             const yesterday = new Date(now.getTime() - 86400000);
             document.getElementById('startDate').value = yesterday.toISOString().split('T')[0];
@@ -258,10 +411,11 @@
 
         // Plot data
         document.getElementById('plotBtn').addEventListener('click', () => {
-            const unitId = parseInt(document.getElementById('unitSelect').value);
-            const selectedSensors = Array.from(document.getElementById('sensorSelect').selectedOptions).map(opt => parseInt(opt.value));
-            if (!unitId || selectedSensors.length === 0) {
-                alert('Select unit and sensors');
+            const y1Sensors = Array.from(document.getElementById('y1Sensors').options).map(opt => opt.value.split('_').map(Number));
+            const y2Sensors = Array.from(document.getElementById('y2Sensors').options).map(opt => opt.value.split('_').map(Number));
+            const selectedSensors = [...y1Sensors, ...y2Sensors];  // Flat [unitId, index]
+            if (selectedSensors.length === 0) {
+                alert('Select sensors for Y-axes');
                 return;
             }
 
@@ -279,69 +433,100 @@
             const loadCount = 100;
 
             const sess = wialon.core.Session.getInstance();
-            const unit = sess.getItem(unitId);
-            const ml = sess.getMessagesLoader();
-            ml.loadInterval(unitId, start, end, 0, 0, loadCount, (code, response) => {
-                console.log('Messages load callback:', { code, responseType: typeof response, fullResponse: response });
-                if (code !== 0) {
-                    alert('Failed to load messages: ' + wialon.core.Errors.getErrorText(code));
-                    return;
-                }
-                // Assume response has messages directly (as per raw API); fallback to count if not
-                const {messages, count} = response;
-                if (messages.length === 0 && count > 0) {
-                    alert('Messages loaded but not available in response. Check console for details.');
-                    return;
-                }
-                if (messages.length === 0) {
-                    alert('No messages found in the selected date range');
-                    return;
-                }
+            const uniqueUnits = [...new Set(selectedSensors.map(s => s[0]))];  // Unique unit IDs
 
-                const seriesData = {};
-                selectedSensors.forEach(sId => {
-                    seriesData[sId] = [];
+            // Aggregate data from multiple units
+            const allMessages = [];
+            let loadedUnits = 0;
+            uniqueUnits.forEach(unitId => {
+                const ml = sess.getMessagesLoader();
+                ml.loadInterval(unitId, start, end, 0, 0, loadCount, (code, response) => {
+                    if (code !== 0) {
+                        console.error('Failed to load messages for unit', unitId);
+                        loadedUnits++;
+                        if (loadedUnits === uniqueUnits.length) plotData(allMessages, selectedSensors, y1Sensors, y2Sensors, startDate, endDate);
+                        return;
+                    }
+                    const {messages} = response;
+                    messages.forEach(msg => msg.unitId = unitId);  // Tag with unit
+                    allMessages.push(...messages);
+                    loadedUnits++;
+                    if (loadedUnits === uniqueUnits.length) {
+                        plotData(allMessages, selectedSensors, y1Sensors, y2Sensors, startDate, endDate);
+                    }
                 });
+            });
+        });
 
-                messages.forEach(msg => {
-                    if (msg.t) {
-                        const time = new Date(msg.t * 1000).getTime();
-                        selectedSensors.forEach(sId => {
-                            const sensorInfo = sensors.find(s => s.index === sId);
+        // Plot aggregated data
+        function plotData(allMessages, selectedSensors, y1Sensors, y2Sensors, startDate, endDate) {
+            if (allMessages.length === 0) {
+                alert('No messages found in the selected date range');
+                return;
+            }
+
+            const sess = wialon.core.Session.getInstance();
+            const seriesData = {};
+            selectedSensors.forEach(([unitId, sId]) => {
+                seriesData[`${unitId}_${sId}`] = [];
+            });
+
+            allMessages.forEach(msg => {
+                if (msg.t) {
+                    const time = new Date(msg.t * 1000).getTime();
+                    const unit = sess.getItem(msg.unitId);
+                    selectedSensors.forEach(([uId, sId]) => {
+                        if (uId === msg.unitId) {
+                            const sensorInfo = sensors.find(s => s.unitId === uId && s.index === sId);
                             if (sensorInfo) {
                                 const sens = sensorInfo.full;
                                 const value = unit.calculateSensorValue(sens, msg);
-                                if (value !== undefined && value !== null) {
-                                    seriesData[sId].push([time, value]);
+                                if (value !== undefined && value !== null && value !== -348201.3876) {
+                                    seriesData[`${uId}_${sId}`].push([time, value]);
                                 }
                             }
-                        });
-                    }
-                });
-
-                // Prepare series
-                const series = selectedSensors.map(sId => {
-                    const sensor = sensors.find(s => s.index === sId);
-                    return {
-                        name: sensor ? sensor.name : `Sensor ${sId}`,
-                        type: 'line',
-                        data: seriesData[sId]
-                    };
-                });
-
-                const option = {
-                    title: { text: `Sensor Data Over Time (${startDate} to ${endDate})` },
-                    tooltip: { trigger: 'axis' },
-                    xAxis: { type: 'time' },
-                    yAxis: { type: 'value' },
-                    series: series
-                };
-
-                chart.setOption(option);
-                document.getElementById('chart').classList.remove('hidden');
-                resizeChart();  // Resize after unhiding
+                        }
+                    });
+                }
             });
-        });
+
+            // Prepare series
+            const y1Series = y1Sensors.map(([uId, sId]) => {
+                const sensor = sensors.find(s => s.unitId === uId && s.index === sId);
+                return {
+                    name: sensor ? `${sensor.name} (U${uId})` : `Sensor ${sId}`,
+                    type: 'line',
+                    yAxisIndex: 0,
+                    data: seriesData[`${uId}_${sId}`]
+                };
+            });
+
+            const y2Series = y2Sensors.map(([uId, sId]) => {
+                const sensor = sensors.find(s => s.unitId === uId && s.index === sId);
+                return {
+                    name: sensor ? `${sensor.name} (U${uId})` : `Sensor ${sId}`,
+                    type: 'line',
+                    yAxisIndex: 1,
+                    data: seriesData[`${uId}_${sId}`]
+                };
+            });
+
+            const option = {
+                title: { text: `Sensor Data Over Time (${startDate} to ${endDate})` },
+                tooltip: { trigger: 'axis' },
+                legend: { data: [...y1Series.map(s => s.name), ...y2Series.map(s => s.name)] },
+                xAxis: { type: 'time' },
+                yAxis: [
+                    { type: 'value', position: 'left', name: 'Y1' },
+                    { type: 'value', position: 'right', name: 'Y2' }
+                ],
+                series: [...y1Series, ...y2Series]
+            };
+
+            chart.setOption(option);
+            document.getElementById('chart').classList.remove('hidden');
+            resizeChart();  // Resize after unhiding
+        }
 
         // Start the app
         async function initApp() {
