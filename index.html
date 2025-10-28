@@ -246,33 +246,29 @@
             const timeFrom = now - 86400;
             const timeTo = now;
 
-            const params = {
-                itemId: unitId,
-                timeFrom,
-                timeTo,
-                flags: 0xFF00,
-                flagsMask: 0xFF00,
-                loadCount: 100
-            };
+            const flags = 0xFF00;
+            const flagsMask = 0xFF00;
+            const loadCount = 100;
 
-            const remote = wialon.core.Remote.getInstance();
-            remote.request('messages/load_interval', params, (code, response) => {
+            const sess = wialon.core.Session.getInstance();
+            const ml = sess.getMessagesLoader();
+            ml.loadInterval(unitId, timeFrom, timeTo, flags, flagsMask, loadCount, (code, msgs) => {
+                console.log('Messages load callback:', { code, msgsLength: msgs ? msgs.length : 0 });
                 if (code) {
                     alert('Failed to fetch data: ' + wialon.core.Errors.getErrorText(code));
                     return;
                 }
-                if (!response || response.error !== false) {
-                    alert('Invalid response from server');
+                if (!msgs || msgs.length === 0) {
+                    alert('No messages found');
                     return;
                 }
 
-                const messages = response.msgs || [];
                 const seriesData = {};
                 selectedSensors.forEach(sId => {
                     seriesData[sId] = [];
                 });
 
-                messages.forEach(msg => {
+                msgs.forEach(msg => {
                     const time = new Date(msg.pos.t).getTime();
                     (msg.sens || []).forEach(sens => {
                         if (selectedSensors.includes(sens.i)) {
