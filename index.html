@@ -53,6 +53,24 @@
         const chartDom = document.getElementById('chart');
         chart = echarts.init(chartDom);
 
+        // Check for sid in URL params (for Wialon app launcher)
+        function getSidFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('sid');
+        }
+
+        // Initialize app
+        function initApp() {
+            sid = getSidFromUrl();
+            if (sid) {
+                console.log('Using SID from URL:', sid);
+                document.getElementById('loginForm').classList.add('hidden');
+                document.getElementById('unitsSection').classList.remove('hidden');
+                fetchUnits();
+            }
+            // Else, show login form
+        }
+
         // Login
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -217,6 +235,7 @@
 
         // Helper for API calls
         async function apiCall(svc, params) {
+            if (!sid) throw new Error('No session ID');
             const response = await fetch(`${API_HOST}/wialon/ajax.html?svc=${svc}&sid=${sid}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -224,6 +243,9 @@
             });
             return JSON.parse(await response.text());
         }
+
+        // Start the app
+        initApp();
     </script>
 </body>
 </html>
