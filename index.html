@@ -210,15 +210,23 @@
                 return;
             }
 
-            sensors = unit.getSensors() ? Object.values(unit.getSensors()) : [];
+            const sensObj = unit.getSensors() || {};
+            sensors = [];
+            for (var i in sensObj) {
+                sensors.push({
+                    index: parseInt(i),
+                    id: sensObj[i].id,
+                    name: sensObj[i].n
+                });
+            }
             console.log('Sensors loaded:', sensors.length);
 
             const select = document.getElementById('sensorSelect');
             select.innerHTML = '';
             sensors.forEach(sensor => {
                 const option = document.createElement('option');
-                option.value = sensor.getId();
-                option.textContent = `${sensor.getName()} (ID: ${sensor.getId()})`;
+                option.value = sensor.index;
+                option.textContent = `${sensor.name} (ID: ${sensor.id})`;
                 select.appendChild(option);
             });
             document.getElementById('sensorsSection').classList.remove('hidden');
@@ -275,9 +283,9 @@
 
                 // Prepare series
                 const series = selectedSensors.map(sId => {
-                    const sensor = sensors.find(s => s.getId() === sId);
+                    const sensor = sensors.find(s => s.index === sId);
                     return {
-                        name: sensor ? sensor.getName() : `Sensor ${sId}`,
+                        name: sensor ? sensor.name : `Sensor ${sId}`,
                         type: 'line',
                         data: seriesData[sId]
                     };
