@@ -16,7 +16,7 @@
 <body>
     <h1>Wialon Sensor Plotter</h1>
     
-    <form id="loginForm">
+    <div id="loginForm">
         <label>Server: 
             <select id="serverSelect">
                 <option value="https://hst-api.wialon.com">Wialon Hosting (.com)</option>
@@ -26,7 +26,8 @@
         <label>Username: <input type="text" id="username" required></label><br>
         <label>Password: <input type="password" id="password" required></label><br>
         <button type="submit">Login</button>
-    </form>
+        <p><small>For App Launcher: Ensure "Authorize hash" is enabled in Apps Configurator.</small></p>
+    </div>
     
     <div id="unitsSection" class="hidden">
         <label>Select Unit: 
@@ -66,7 +67,7 @@
                 sid: params.get('sid'),
                 user: params.get('user'),
                 baseUrl: params.get('baseUrl'),
-                ah: params.get('authHash')  // authHash
+                authHash: params.get('authHash')  // Corrected from 'ah'
             };
         }
 
@@ -96,8 +97,7 @@
         // Login callback
         function onLogin(code) {
             if (code) {
-                alert('Login failed: ' + wialon.core.Errors.getErrorText(code));
-                return;
+                throw new Error('Login failed: ' + wialon.core.Errors.getErrorText(code));
             }
             console.log('Logged in successfully');
             fetchUnits();
@@ -105,25 +105,33 @@
             document.getElementById('unitsSection').classList.remove('hidden');
         }
 
-        // App launcher init
+        // App launcher init (now returns promise)
         async function initFromLauncher() {
             const params = getUrlParams();
             if (!params.baseUrl) return false;
 
             try {
                 await initSession(decodeURIComponent(params.baseUrl));
-                if (params.ah) {
+                if (params.authHash) {
                     // Use authHash for login
-                    session.loginAuthHash(params.ah, '', onLogin);
+                    return new Promise((resolve) => {
+                        session.loginAuthHash(params.authHash, '', (code) => {
+                            try {
+                                onLogin(code);
+                                resolve(true);
+                            } catch (err) {
+                                alert(err.message);
+                                resolve(false);
+                            }
+                        });
+                    });
                 } else if (params.sid) {
-                    // Fallback to SID if no ah (though ah should be present)
-                    // Note: Direct SID use may have IP restrictions; authHash is preferred
-                    alert('Auth hash not provided; using SID (may fail on different IP)');
-                    session.login('', params.sid, onLogin);  // Experimental; check docs
+                    // For Active SID: Not directly supported in JS SDK (IP-bound). Show manual login.
+                    alert('SID detected, but JS SDK requires "Authorize hash" for client-side apps. Please update Apps Configurator to use "Authorize hash" instead. Falling back to manual login.');
+                    return false;
                 } else {
                     return false;
                 }
-                return true;
             } catch (err) {
                 alert('SDK init error: ' + err.message);
                 return false;
@@ -139,7 +147,17 @@
             
             try {
                 await initSession(serverUrl);
-                session.login(user, pass, '', onLogin);
+                return new Promise((resolve) => {
+                    session.login(user, pass, '', (code) => {
+                        try {
+                            onLogin(code);
+                            resolve();
+                        } catch (err) {
+                            alert(err.message);
+                            resolve();
+                        }
+                    });
+                });
             } catch (err) {
                 alert('Error: ' + err.message);
             }
@@ -179,13 +197,17 @@
 
             const dataFlags = wialon.item.Unit.dataFlag.base | wialon.item.Unit.dataFlag.sensors;
 
+            console.log('Fetching sensors for unit ID:', unitId);  // Debug log
+
             session.searchItem(unitId, dataFlags, (code, data) => {
+                console.log('Sensors callback fired:', { code, hasData: !!data });  // Debug log
                 if (code) {
                     alert('Failed to fetch unit: ' + wialon.core.Errors.getErrorText(code));
                     return;
                 }
                 const unit = data.item;
                 sensors = unit.getSensors() || [];
+                console.log('Sensors loaded:', sensors.length);  // Debug log
                 const select = document.getElementById('sensorSelect');
                 select.innerHTML = '';
                 sensors.forEach(sensor => {
