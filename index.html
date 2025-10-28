@@ -1,25 +1,54 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wialon Sensor Plotter</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        input, select, button { margin: 5px; padding: 5px; }
-        #chart { width: 100%; height: 400px; }
-        .hidden { display: none; }
-        #loginForm select { margin: 5px; }
-        .date-row { display: flex; align-items: center; margin: 10px 0; }
-        .date-row label { margin-right: 10px; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        input,
+        select,
+        button {
+            margin: 5px;
+            padding: 5px;
+        }
+
+        #chart {
+            width: 100%;
+            height: 400px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        #loginForm select {
+            margin: 5px;
+        }
+
+        .date-row {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+        }
+
+        .date-row label {
+            margin-right: 10px;
+        }
     </style>
 </head>
+
 <body>
     <h1>Wialon Sensor Plotter</h1>
-    
+
     <div id="loginForm">
-        <label>Server: 
+        <label>Server:
             <select id="serverSelect">
                 <option value="https://hst-api.wialon.com">Wialon Hosting (.com)</option>
                 <option value="https://hst-api.wialon.eu">Wialon Hosting EU (.eu)</option>
@@ -30,18 +59,18 @@
         <button type="submit">Login</button>
         <p><small>For App Launcher: Ensure "Authorize hash" is enabled in Apps Configurator.</small></p>
     </div>
-    
+
     <div id="unitsSection" class="hidden">
-        <label>Select Unit: 
+        <label>Select Unit:
             <select id="unitSelect">
                 <option value="">Select a unit</option>
             </select>
         </label>
         <button id="loadSensors">Load Sensors</button>
     </div>
-    
+
     <div id="sensorsSection" class="hidden">
-        <label>Sensors: 
+        <label>Sensors:
             <select id="sensorSelect" multiple size="5">
                 <option value="">No sensors</option>
             </select>
@@ -52,9 +81,9 @@
         </div>
         <button id="plotBtn">Plot Data</button>
     </div>
-    
+
     <div id="chart" class="hidden"></div>
-    
+
     <script>
         let baseUrl = null;
         let session = null;
@@ -155,7 +184,7 @@
             const serverUrl = document.getElementById('serverSelect').value;
             const user = document.getElementById('username').value;
             const pass = document.getElementById('password').value;
-            
+
             try {
                 await initSession(serverUrl);
                 return new Promise((resolve) => {
@@ -264,25 +293,31 @@
             const start = Math.floor(new Date(startDate + 'T00:00:00').getTime() / 1000);
             const end = Math.floor(new Date(endDate + 'T23:59:59').getTime() / 1000);
 
-            const flags = 0xFF00;
-            const flagsMask = 0xFF00;
             const loadCount = 100;
 
             const sess = wialon.core.Session.getInstance();
             const ml = sess.getMessagesLoader();
-            ml.loadInterval(unitId, start, end, flags, flagsMask, loadCount, (code, response) => {
-                console.log('Messages load callback:', { code, responseType: typeof response, hasMsgs: response && response.msgs ? response.msgs.length : 0 });
+            ml.loadInterval(unitId, start, end, 0, 0, loadCount, (code, response) => {
+                console.log('Messages load callback:', { code, responseType: typeof response, count: response ? response.count : 0 });
                 if (code !== 0) {
                     alert('Failed to fetch data: ' + wialon.core.Errors.getErrorText(code));
                     return;
                 }
-                if (!response) {
-                    alert('Invalid response from server');
+                const count = response ? response.count : 0;
+                if (count === 0) {
+                    alert('No messages found in the selected date range');
                     return;
                 }
-                const msgs = response.msgs || [];
-                if (msgs.length === 0) {
-                    alert('No messages found in the selected date range');
+            });
+            // Now retrieve the messages using getMessages
+            ml.getMessages(0, count - 1, (code2, msgs) => {
+                console.log('getMessages callback:', { code: code2, msgsLength: msgs ? msgs.length : 0 });
+                if (code2 !== 0) {
+                    alert('Failed to retrieve messages: ' + wialon.core.Errors.getErrorText(code2));
+                    return;
+                }
+                if (!msgs || msgs.length === 0) {
+                    alert('No messages to display');
                     return;
                 }
 
@@ -334,4 +369,5 @@
         initApp();
     </script>
 </body>
+
 </html>
