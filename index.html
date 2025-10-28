@@ -201,10 +201,11 @@
 
             session.searchItem(unitId, dataFlags, (code, data) => {
                 console.log('Sensors callback fired:', { code, hasData: !!data });  // Debug log
-                if (code) {
-                    alert('Failed to fetch unit: ' + wialon.core.Errors.getErrorText(code));
-                    return;
-                }
+                console.log(data);
+                // if (code) {
+                //     alert('Failed to fetch unit: ' + wialon.core.Errors.getErrorText(code));
+                //     return;
+                // }
                 const unit = data.item;
                 sensors = unit.getSensors() || [];
                 console.log('Sensors loaded:', sensors.length);  // Debug log
