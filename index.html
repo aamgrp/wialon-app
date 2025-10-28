@@ -7,16 +7,22 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; }
-        form { margin-bottom: 20px; }
         input, select, button { margin: 5px; padding: 5px; }
         #chart { width: 100%; height: 400px; }
         .hidden { display: none; }
+        #loginForm select { margin: 5px; }
     </style>
 </head>
 <body>
     <h1>Wialon Sensor Plotter</h1>
     
     <form id="loginForm">
+        <label>Server: 
+            <select id="serverSelect">
+                <option value="https://hst-api.wialon.com">Wialon Hosting (.com)</option>
+                <option value="https://hst-api.wialon.eu">Wialon Hosting EU (.eu)</option>
+            </select>
+        </label><br>
         <label>Username: <input type="text" id="username" required></label><br>
         <label>Password: <input type="password" id="password" required></label><br>
         <button type="submit">Login</button>
@@ -25,7 +31,7 @@
     <div id="unitsSection" class="hidden">
         <label>Select Unit: 
             <select id="unitSelect">
-                <option value="">Loading...</option>
+                <option value="">Select a unit</option>
             </select>
         </label>
         <button id="loadSensors">Load Sensors</button>
@@ -34,7 +40,7 @@
     <div id="sensorsSection" class="hidden">
         <label>Sensors: 
             <select id="sensorSelect" multiple size="5">
-                <option value="">Loading...</option>
+                <option value="">No sensors</option>
             </select>
         </label><br>
         <button id="plotBtn">Plot Data</button>
@@ -43,8 +49,8 @@
     <div id="chart" class="hidden"></div>
     
     <script>
-        const API_HOST = 'https://hst-api.wialon.com';
-        let sid = null;
+        let baseUrl = null;
+        let session = null;
         let units = [];
         let sensors = [];
         let chart = null;
@@ -53,198 +59,222 @@
         const chartDom = document.getElementById('chart');
         chart = echarts.init(chartDom);
 
-        // Check for sid in URL params (for Wialon app launcher)
-        function getSidFromUrl() {
+        // Parse URL params
+        function getUrlParams() {
             const params = new URLSearchParams(window.location.search);
-            return params.get('sid');
+            return {
+                sid: params.get('sid'),
+                user: params.get('user'),
+                baseUrl: params.get('baseUrl'),
+                ah: params.get('ah')  // authHash
+            };
         }
 
-        // Initialize app
-        function initApp() {
-            sid = getSidFromUrl();
-            if (sid) {
-                console.log('Using SID from URL:', sid);
-                document.getElementById('loginForm').classList.add('hidden');
-                document.getElementById('unitsSection').classList.remove('hidden');
-                fetchUnits();
+        // Load Wialon SDK dynamically
+        async function loadSDK(url) {
+            return new Promise((resolve, reject) => {
+                if (window.wialon) {
+                    resolve();
+                    return;
+                }
+                const script = document.createElement('script');
+                script.src = url + '/wsdk/script/wialon.js';
+                script.onerror = () => reject(new Error('Failed to load SDK'));
+                script.onload = () => resolve();
+                document.head.appendChild(script);
+            });
+        }
+
+        // Initialize session
+        async function initSession(url) {
+            baseUrl = url;
+            await loadSDK(baseUrl);
+            session = wialon.core.Session.getInstance();
+            session.initSession(baseUrl);
+        }
+
+        // Login callback
+        function onLogin(code) {
+            if (code) {
+                alert('Login failed: ' + wialon.core.Errors.getErrorText(code));
+                return;
             }
-            // Else, show login form
+            console.log('Logged in successfully');
+            fetchUnits();
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('unitsSection').classList.remove('hidden');
         }
 
-        // Login
+        // App launcher init
+        async function initFromLauncher() {
+            const params = getUrlParams();
+            if (!params.baseUrl) return false;
+
+            try {
+                await initSession(decodeURIComponent(params.baseUrl));
+                if (params.ah) {
+                    // Use authHash for login
+                    session.loginAuthHash(params.ah, '', onLogin);
+                } else if (params.sid) {
+                    // Fallback to SID if no ah (though ah should be present)
+                    // Note: Direct SID use may have IP restrictions; authHash is preferred
+                    alert('Auth hash not provided; using SID (may fail on different IP)');
+                    session.login('', params.sid, onLogin);  // Experimental; check docs
+                } else {
+                    return false;
+                }
+                return true;
+            } catch (err) {
+                alert('SDK init error: ' + err.message);
+                return false;
+            }
+        }
+
+        // Manual login
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            const serverUrl = document.getElementById('serverSelect').value;
             const user = document.getElementById('username').value;
             const pass = document.getElementById('password').value;
             
             try {
-                const response = await fetch(`${API_HOST}/wialon/ajax.html?svc=core/login`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: `params=${encodeURIComponent(JSON.stringify({ user, password: pass }))}`
-                });
-                const data = await response.text();
-                const result = JSON.parse(data);
-                
-                if (result.error !== false) {
-                    alert('Login failed: ' + result.error);
-                    return;
-                }
-                
-                sid = result.sid;
-                console.log('Logged in, SID:', sid);
-                
-                // Fetch units
-                await fetchUnits();
-                
-                document.getElementById('loginForm').classList.add('hidden');
-                document.getElementById('unitsSection').classList.remove('hidden');
+                await initSession(serverUrl);
+                session.login(user, pass, '', onLogin);
             } catch (err) {
                 alert('Error: ' + err.message);
             }
         });
 
         // Fetch units
-        async function fetchUnits() {
-            const params = {
-                spec: {
-                    itemsType: 'avl_unit',
-                    propName: '',
-                    propValueMask: '',
-                    sortType: 'sys_name',
-                    propType: 'property',
-                    or_logic: 0
-                },
-                force: 1,
-                flags: 1,  // Basic info: id, name
-                from: 0,
-                to: 0
+        function fetchUnits() {
+            const searchSpec = {
+                itemsType: 'avl_unit',
+                propName: 'sys_name',
+                propValueMask: '*',
+                sortType: 'sys_name'
             };
-            
-            const response = await apiCall('core/search_items', params);
-            if (response.error !== false) {
-                alert('Failed to fetch units: ' + response.error);
-                return;
-            }
-            
-            units = response.items || [];
-            const select = document.getElementById('unitSelect');
-            select.innerHTML = '<option value="">Select a unit</option>';
-            units.forEach(unit => {
-                const option = document.createElement('option');
-                option.value = unit.id;
-                option.textContent = unit.nm;
-                select.appendChild(option);
+            const dataFlags = wialon.item.Item.dataFlag.base;
+
+            session.searchItems(searchSpec, true, dataFlags, 0, 0, (code, data) => {
+                if (code) {
+                    alert('Failed to fetch units: ' + wialon.core.Errors.getErrorText(code));
+                    return;
+                }
+                units = data.items || [];
+                const select = document.getElementById('unitSelect');
+                select.innerHTML = '<option value="">Select a unit</option>';
+                units.forEach(unit => {
+                    const option = document.createElement('option');
+                    option.value = unit.getId();
+                    option.textContent = unit.getName();
+                    select.appendChild(option);
+                });
             });
         }
 
-        // Load sensors for selected unit
-        document.getElementById('loadSensors').addEventListener('click', async () => {
-            const unitId = document.getElementById('unitSelect').value;
+        // Load sensors
+        document.getElementById('loadSensors').addEventListener('click', () => {
+            const unitId = parseInt(document.getElementById('unitSelect').value);
             if (!unitId) return;
-            
-            const params = {
-                id: parseInt(unitId),
-                flags: 0x800001  // 1 for base, 0x800000 for sensors
-            };
-            
-            const response = await apiCall('core/search_item', params);
-            if (response.error !== false) {
-                alert('Failed to fetch sensors: ' + response.error);
-                return;
-            }
-            
-            sensors = response.item.sens || [];
-            const select = document.getElementById('sensorSelect');
-            select.innerHTML = '';
-            sensors.forEach(sensor => {
-                const option = document.createElement('option');
-                option.value = sensor.id;
-                option.textContent = `${sensor.nm} (ID: ${sensor.id})`;
-                select.appendChild(option);
+
+            const dataFlags = wialon.item.Unit.dataFlag.base | wialon.item.Unit.dataFlag.sensors;
+
+            session.searchItem(unitId, dataFlags, (code, data) => {
+                if (code) {
+                    alert('Failed to fetch unit: ' + wialon.core.Errors.getErrorText(code));
+                    return;
+                }
+                const unit = data.item;
+                sensors = unit.getSensors() || [];
+                const select = document.getElementById('sensorSelect');
+                select.innerHTML = '';
+                sensors.forEach(sensor => {
+                    const option = document.createElement('option');
+                    option.value = sensor.getId();
+                    option.textContent = `${sensor.getName()} (ID: ${sensor.getId()})`;
+                    select.appendChild(option);
+                });
+                document.getElementById('sensorsSection').classList.remove('hidden');
             });
-            
-            document.getElementById('sensorsSection').classList.remove('hidden');
         });
 
         // Plot data
-        document.getElementById('plotBtn').addEventListener('click', async () => {
-            const unitId = document.getElementById('unitSelect').value;
+        document.getElementById('plotBtn').addEventListener('click', () => {
+            const unitId = parseInt(document.getElementById('unitSelect').value);
             const selectedSensors = Array.from(document.getElementById('sensorSelect').selectedOptions).map(opt => parseInt(opt.value));
             if (!unitId || selectedSensors.length === 0) {
                 alert('Select unit and sensors');
                 return;
             }
-            
+
             // Last 24 hours
             const now = Math.floor(Date.now() / 1000);
             const timeFrom = now - 86400;
             const timeTo = now;
-            
+
             const params = {
-                itemId: parseInt(unitId),
+                itemId: unitId,
                 timeFrom,
                 timeTo,
-                flags: 0xFF00,  // All data
+                flags: 0xFF00,
                 flagsMask: 0xFF00,
-                loadCount: 100  // Limit to 100 messages
+                loadCount: 100
             };
-            
-            const response = await apiCall('messages/load_interval', params);
-            if (response.error !== false) {
-                alert('Failed to fetch data: ' + response.error);
-                return;
-            }
-            
-            const messages = response.msgs || [];
-            const seriesData = {};
-            selectedSensors.forEach(sId => {
-                seriesData[sId] = [];
-            });
-            
-            messages.forEach(msg => {
-                const time = msg.pos.t / 1000 * 1000;  // ms for ECharts
-                (msg.sens || []).forEach(sens => {
-                    if (selectedSensors.includes(sens.i)) {
-                        seriesData[sens.i].push([time, sens.val]);
-                    }
+
+            const remote = wialon.core.Remote.getInstance();
+            remote.request('messages/load_interval', params, (code, response) => {
+                if (code) {
+                    alert('Failed to fetch data: ' + wialon.core.Errors.getErrorText(code));
+                    return;
+                }
+
+                const messages = response.msgs || [];
+                const seriesData = {};
+                selectedSensors.forEach(sId => {
+                    seriesData[sId] = [];
                 });
-            });
-            
-            // Prepare series
-            const series = selectedSensors.map(sId => {
-                const sensor = sensors.find(s => s.id === sId);
-                return {
-                    name: sensor ? sensor.nm : `Sensor ${sId}`,
-                    type: 'line',
-                    data: seriesData[sId]
+
+                messages.forEach(msg => {
+                    const time = new Date(msg.pos.t).getTime();  // ms for ECharts
+                    (msg.sens || []).forEach(sens => {
+                        if (selectedSensors.includes(sens.i)) {
+                            seriesData[sens.i].push([time, sens.val]);
+                        }
+                    });
+                });
+
+                // Prepare series
+                const series = selectedSensors.map(sId => {
+                    const sensor = sensors.find(s => s.getId() === sId);
+                    return {
+                        name: sensor ? sensor.getName() : `Sensor ${sId}`,
+                        type: 'line',
+                        data: seriesData[sId]
+                    };
+                });
+
+                const option = {
+                    title: { text: 'Sensor Data Over Time' },
+                    tooltip: { trigger: 'axis' },
+                    xAxis: { type: 'time' },
+                    yAxis: { type: 'value' },
+                    series: series
                 };
+
+                chart.setOption(option);
+                document.getElementById('chart').classList.remove('hidden');
             });
-            
-            const option = {
-                title: { text: 'Sensor Data Over Time' },
-                tooltip: { trigger: 'axis' },
-                xAxis: { type: 'time' },
-                yAxis: { type: 'value' },
-                series: series
-            };
-            
-            chart.setOption(option);
-            document.getElementById('chart').classList.remove('hidden');
         });
 
-        // Helper for API calls
-        async function apiCall(svc, params) {
-            if (!sid) throw new Error('No session ID');
-            const response = await fetch(`${API_HOST}/wialon/ajax.html?svc=${svc}&sid=${sid}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: `params=${encodeURIComponent(JSON.stringify(params))}`
-            });
-            return JSON.parse(await response.text());
+        // Start the app
+        async function initApp() {
+            const fromLauncher = await initFromLauncher();
+            if (!fromLauncher) {
+                // Show login form for manual access
+                document.getElementById('loginForm').classList.remove('hidden');
+            }
         }
 
-        // Start the app
         initApp();
     </script>
 </body>
