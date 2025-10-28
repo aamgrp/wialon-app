@@ -71,17 +71,21 @@
             };
         }
 
-        // Load Wialon SDK dynamically
-        async function loadSDK(url) {
+        // Load Wialon SDK dynamically (always from .com, regardless of baseUrl)
+        async function loadSDK() {
             return new Promise((resolve, reject) => {
                 if (window.wialon) {
+                    console.log('Wialon SDK already loaded');
                     resolve();
                     return;
                 }
                 const script = document.createElement('script');
-                script.src = url + '/wsdk/script/wialon.js';
-                script.onerror = () => reject(new Error('Failed to load SDK'));
-                script.onload = () => resolve();
+                script.src = 'https://hst-api.wialon.com/wsdk/script/wialon.js';
+                script.onerror = () => reject(new Error('Failed to load Wialon SDK from https://hst-api.wialon.com/wsdk/script/wialon.js'));
+                script.onload = () => {
+                    console.log('Wialon SDK loaded successfully');
+                    resolve();
+                };
                 document.head.appendChild(script);
             });
         }
@@ -89,9 +93,13 @@
         // Initialize session
         async function initSession(url) {
             baseUrl = url;
-            await loadSDK(baseUrl);
+            await loadSDK();
+            if (!window.wialon) {
+                throw new Error('Wialon SDK not available after load');
+            }
             session = wialon.core.Session.getInstance();
             session.initSession(baseUrl);
+            console.log('Session initialized with baseUrl:', baseUrl);
         }
 
         // Login callback
@@ -198,16 +206,19 @@
             const dataFlags = wialon.item.Unit.dataFlag.base | wialon.item.Unit.dataFlag.sensors;
 
             console.log('Fetching sensors for unit ID:', unitId);  // Debug log
-            console.log('Data Flags:', dataFlags);
-            console.log('All Data Flags:', wialon.item.Unit.dataFlag)
 
             session.searchItem(unitId, dataFlags, (code, data) => {
                 console.log('Sensors callback fired:', { code, hasData: !!data });  // Debug log
-                console.log(data);
-                // if (code) {
-                //     alert('Failed to fetch unit: ' + wialon.core.Errors.getErrorText(code));
-                //     return;
-                // }
+                if (code) {
+                    console.error('Sensors fetch error code:', code, wialon.core.Errors.getErrorText(code));
+                    alert('Failed to fetch unit: ' + wialon.core.Errors.getErrorText(code));
+                    return;
+                }
+                if (!data || !data.item) {
+                    console.error('No item data in response:', data);
+                    alert('No unit data returned');
+                    return;
+                }
                 const unit = data.item;
                 sensors = unit.getSensors() || [];
                 console.log('Sensors loaded:', sensors.length);  // Debug log
