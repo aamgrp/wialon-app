@@ -435,7 +435,22 @@
 
             const option = {
                 title: { text: `Sensor Data Over Time (${startDate} to ${endDate})` },
-                tooltip: { trigger: 'axis' },
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'cross',
+                        animation: false,
+                    }
+                },
+                toolbox: {
+                    feature: {
+                        dataZoom: {
+                            yAxisIndex: 'none'
+                        },
+                        restore: {},
+                        saveAsImage: {}
+                    }
+                },
                 legend: { data: [...y1Series.map(s => s.name), ...y2Series.map(s => s.name)] },
                 xAxis: { type: 'time' },
                 yAxis: [
