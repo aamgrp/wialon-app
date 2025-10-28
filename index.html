@@ -67,11 +67,11 @@
                 sid: params.get('sid'),
                 user: params.get('user'),
                 baseUrl: params.get('baseUrl'),
-                authHash: params.get('authHash')  // Corrected from 'ah'
+                authHash: params.get('authHash')
             };
         }
 
-        // Load Wialon SDK dynamically (always from .com, regardless of baseUrl)
+        // Load Wialon SDK dynamically
         async function loadSDK() {
             return new Promise((resolve, reject) => {
                 if (window.wialon) {
@@ -81,7 +81,7 @@
                 }
                 const script = document.createElement('script');
                 script.src = 'https://hst-api.wialon.com/wsdk/script/wialon.js';
-                script.onerror = () => reject(new Error('Failed to load Wialon SDK from https://hst-api.wialon.com/wsdk/script/wialon.js'));
+                script.onerror = () => reject(new Error('Failed to load Wialon SDK'));
                 script.onload = () => {
                     console.log('Wialon SDK loaded successfully');
                     resolve();
@@ -108,12 +108,14 @@
                 throw new Error('Login failed: ' + wialon.core.Errors.getErrorText(code));
             }
             console.log('Logged in successfully');
+            const sess = wialon.core.Session.getInstance();
+            sess.loadLibrary('unitSensors'); // Load sensor library
             fetchUnits();
             document.getElementById('loginForm').classList.add('hidden');
             document.getElementById('unitsSection').classList.remove('hidden');
         }
 
-        // App launcher init (now returns promise)
+        // App launcher init
         async function initFromLauncher() {
             const params = getUrlParams();
             if (!params.baseUrl) return false;
@@ -121,7 +123,6 @@
             try {
                 await initSession(decodeURIComponent(params.baseUrl));
                 if (params.authHash) {
-                    // Use authHash for login
                     return new Promise((resolve) => {
                         session.loginAuthHash(params.authHash, '', (code) => {
                             try {
@@ -133,10 +134,6 @@
                             }
                         });
                     });
-                } else if (params.sid) {
-                    // For Active SID: Not directly supported in JS SDK (IP-bound). Show manual login.
-                    alert('SID detected, but JS SDK requires "Authorize hash" for client-side apps. Please update Apps Configurator to use "Authorize hash" instead. Falling back to manual login.');
-                    return false;
                 } else {
                     return false;
                 }
@@ -171,67 +168,60 @@
             }
         });
 
-        // Fetch units
+        // Fetch units using updateDataFlags (loads sensors upfront)
         function fetchUnits() {
-            const searchSpec = {
-                itemsType: 'avl_unit',
-                propName: 'sys_name',
-                propValueMask: '*',
-                sortType: 'sys_name'
-            };
-            const dataFlags = wialon.item.Item.dataFlag.base;
+            const sess = wialon.core.Session.getInstance();
+            const flags = wialon.item.Item.dataFlag.base | wialon.item.Unit.dataFlag.sensors;
 
-            session.searchItems(searchSpec, true, dataFlags, 0, 0, (code, data) => {
-                if (code) {
-                    alert('Failed to fetch units: ' + wialon.core.Errors.getErrorText(code));
-                    return;
+            sess.updateDataFlags(
+                [{ type: 'type', data: 'avl_unit', flags: flags, mode: 0 }],
+                (code) => {
+                    console.log('Units updateDataFlags callback:', { code });
+                    if (code) {
+                        console.error('Units load error:', code, wialon.core.Errors.getErrorText(code));
+                        alert('Failed to fetch units: ' + wialon.core.Errors.getErrorText(code));
+                        return;
+                    }
+                    units = sess.getItems('avl_unit') || [];
+                    const select = document.getElementById('unitSelect');
+                    select.innerHTML = '<option value="">Select a unit</option>';
+                    units.forEach(unit => {
+                        const option = document.createElement('option');
+                        option.value = unit.getId();
+                        option.textContent = unit.getName();
+                        select.appendChild(option);
+                    });
+                    console.log('Units loaded:', units.length);
                 }
-                units = data.items || [];
-                const select = document.getElementById('unitSelect');
-                select.innerHTML = '<option value="">Select a unit</option>';
-                units.forEach(unit => {
-                    const option = document.createElement('option');
-                    option.value = unit.getId();
-                    option.textContent = unit.getName();
-                    select.appendChild(option);
-                });
-            });
+            );
         }
 
-        // Load sensors
+        // Load sensors using getItem and getSensors
         document.getElementById('loadSensors').addEventListener('click', () => {
             const unitId = parseInt(document.getElementById('unitSelect').value);
             if (!unitId) return;
 
-            const dataFlags = wialon.item.Unit.dataFlag.base | wialon.item.Unit.dataFlag.sensors;
+            console.log('Fetching sensors for unit ID:', unitId);
 
-            console.log('Fetching sensors for unit ID:', unitId);  // Debug log
+            const sess = wialon.core.Session.getInstance();
+            const unit = sess.getItem(unitId);
+            if (!unit) {
+                alert('Unit not found');
+                return;
+            }
 
-            session.searchItem(unitId, dataFlags, (code, data) => {
-                console.log('Sensors callback fired:', { code, hasData: !!data });  // Debug log
-                if (code) {
-                    console.error('Sensors fetch error code:', code, wialon.core.Errors.getErrorText(code));
-                    alert('Failed to fetch unit: ' + wialon.core.Errors.getErrorText(code));
-                    return;
-                }
-                if (!data || !data.item) {
-                    console.error('No item data in response:', data);
-                    alert('No unit data returned');
-                    return;
-                }
-                const unit = data.item;
-                sensors = unit.getSensors() || [];
-                console.log('Sensors loaded:', sensors.length);  // Debug log
-                const select = document.getElementById('sensorSelect');
-                select.innerHTML = '';
-                sensors.forEach(sensor => {
-                    const option = document.createElement('option');
-                    option.value = sensor.getId();
-                    option.textContent = `${sensor.getName()} (ID: ${sensor.getId()})`;
-                    select.appendChild(option);
-                });
-                document.getElementById('sensorsSection').classList.remove('hidden');
+            sensors = unit.getSensors() ? Object.values(unit.getSensors()) : [];
+            console.log('Sensors loaded:', sensors.length);
+
+            const select = document.getElementById('sensorSelect');
+            select.innerHTML = '';
+            sensors.forEach(sensor => {
+                const option = document.createElement('option');
+                option.value = sensor.getId();
+                option.textContent = `${sensor.getName()} (ID: ${sensor.getId()})`;
+                select.appendChild(option);
             });
+            document.getElementById('sensorsSection').classList.remove('hidden');
         });
 
         // Plot data
@@ -263,6 +253,10 @@
                     alert('Failed to fetch data: ' + wialon.core.Errors.getErrorText(code));
                     return;
                 }
+                if (!response || response.error !== false) {
+                    alert('Invalid response from server');
+                    return;
+                }
 
                 const messages = response.msgs || [];
                 const seriesData = {};
@@ -271,7 +265,7 @@
                 });
 
                 messages.forEach(msg => {
-                    const time = new Date(msg.pos.t).getTime();  // ms for ECharts
+                    const time = new Date(msg.pos.t).getTime();
                     (msg.sens || []).forEach(sens => {
                         if (selectedSensors.includes(sens.i)) {
                             seriesData[sens.i].push([time, sens.val]);
@@ -306,7 +300,6 @@
         async function initApp() {
             const fromLauncher = await initFromLauncher();
             if (!fromLauncher) {
-                // Show login form for manual access
                 document.getElementById('loginForm').classList.remove('hidden');
             }
         }
