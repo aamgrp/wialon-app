@@ -219,10 +219,12 @@
             const sensObj = unit.getSensors() || {};
             sensors = [];
             for (var i in sensObj) {
+                const fullSensor = sensObj[i];
                 sensors.push({
                     index: parseInt(i),
-                    id: sensObj[i].id,
-                    name: sensObj[i].n
+                    id: fullSensor.id,
+                    name: fullSensor.n,
+                    full: fullSensor  // Keep full SDK sensor object
                 });
             }
             console.log('Sensors loaded:', sensors.length);
@@ -267,66 +269,66 @@
             const loadCount = 100;
 
             const sess = wialon.core.Session.getInstance();
+            const unit = sess.getItem(unitId);
             const ml = sess.getMessagesLoader();
             ml.loadInterval(unitId, start, end, 0, 0, loadCount, (code, response) => {
-                console.log('Messages load callback:', { code, responseType: typeof response, count: response ? response.count : 0 });
+                console.log('Messages load callback:', { code, responseType: typeof response, fullResponse: response });
                 if (code !== 0) {
                     alert('Failed to load messages: ' + wialon.core.Errors.getErrorText(code));
                     return;
                 }
-                const count = response ? response.count : 0;
-                if (count === 0) {
+                // Assume response has msgs directly (as per raw API); fallback to count if not
+                let msgs = response.msgs || [];
+                if (msgs.length === 0 && response.count > 0) {
+                    alert('Messages loaded but not available in response. Check console for details.');
+                    return;
+                }
+                if (msgs.length === 0) {
                     alert('No messages found in the selected date range');
                     return;
                 }
 
-                // Retrieve the messages after loading completes
-                ml.getMessages(0, count - 1, (code2, msgs) => {
-                    console.log('getMessages callback:', { code: code2, msgsLength: msgs ? msgs.length : 0 });
-                    if (code2 !== 0) {
-                        alert('Failed to retrieve messages: ' + wialon.core.Errors.getErrorText(code2));
-                        return;
-                    }
-                    if (!msgs || msgs.length === 0) {
-                        alert('No messages to display');
-                        return;
-                    }
+                const seriesData = {};
+                selectedSensors.forEach(sId => {
+                    seriesData[sId] = [];
+                });
 
-                    const seriesData = {};
-                    selectedSensors.forEach(sId => {
-                        seriesData[sId] = [];
-                    });
-
-                    msgs.forEach(msg => {
-                        const time = new Date(msg.pos.t).getTime();
-                        (msg.sens || []).forEach(sens => {
-                            if (selectedSensors.includes(sens.i)) {
-                                seriesData[sens.i].push([time, sens.val]);
+                msgs.forEach(msg => {
+                    if (msg.t) {
+                        const time = new Date(msg.t * 1000).getTime();
+                        selectedSensors.forEach(sId => {
+                            const sensorInfo = sensors.find(s => s.index === sId);
+                            if (sensorInfo) {
+                                const sens = sensorInfo.full;
+                                const value = unit.calculateSensorValue(sens, msg);
+                                if (value !== undefined && value !== null) {
+                                    seriesData[sId].push([time, value]);
+                                }
                             }
                         });
-                    });
-
-                    // Prepare series
-                    const series = selectedSensors.map(sId => {
-                        const sensor = sensors.find(s => s.index === sId);
-                        return {
-                            name: sensor ? sensor.name : `Sensor ${sId}`,
-                            type: 'line',
-                            data: seriesData[sId]
-                        };
-                    });
-
-                    const option = {
-                        title: { text: `Sensor Data Over Time (${startDate} to ${endDate})` },
-                        tooltip: { trigger: 'axis' },
-                        xAxis: { type: 'time' },
-                        yAxis: { type: 'value' },
-                        series: series
-                    };
-
-                    chart.setOption(option);
-                    document.getElementById('chart').classList.remove('hidden');
+                    }
                 });
+
+                // Prepare series
+                const series = selectedSensors.map(sId => {
+                    const sensor = sensors.find(s => s.index === sId);
+                    return {
+                        name: sensor ? sensor.name : `Sensor ${sId}`,
+                        type: 'line',
+                        data: seriesData[sId]
+                    };
+                });
+
+                const option = {
+                    title: { text: `Sensor Data Over Time (${startDate} to ${endDate})` },
+                    tooltip: { trigger: 'axis' },
+                    xAxis: { type: 'time' },
+                    yAxis: { type: 'value' },
+                    series: series
+                };
+
+                chart.setOption(option);
+                document.getElementById('chart').classList.remove('hidden');
             });
         });
 
