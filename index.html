@@ -66,6 +66,16 @@
         const chartDom = document.getElementById('chart');
         chart = echarts.init(chartDom);
 
+        // Resize chart when container is shown
+        function resizeChart() {
+            if (chart) {
+                chart.resize();
+            }
+        }
+
+        // Listen for window resize
+        window.addEventListener('resize', resizeChart);
+
         // Parse URL params
         function getUrlParams() {
             const params = new URLSearchParams(window.location.search);
@@ -266,7 +276,7 @@
             const start = Math.floor(new Date(startDate + 'T00:00:00').getTime() / 1000);
             const end = Math.floor(new Date(endDate + 'T23:59:59').getTime() / 1000);
 
-            const loadCount = 10000;
+            const loadCount = 100;
 
             const sess = wialon.core.Session.getInstance();
             const unit = sess.getItem(unitId);
@@ -277,13 +287,13 @@
                     alert('Failed to load messages: ' + wialon.core.Errors.getErrorText(code));
                     return;
                 }
-                // Assume response has messages directly (as per raw API); fallback to count if not
-                const {messages, count} = response;
-                if (messages.length === 0 && count > 0) {
+                // Assume response has msgs directly (as per raw API); fallback to count if not
+                let msgs = response.msgs || [];
+                if (msgs.length === 0 && response.count > 0) {
                     alert('Messages loaded but not available in response. Check console for details.');
                     return;
                 }
-                if (messages.length === 0) {
+                if (msgs.length === 0) {
                     alert('No messages found in the selected date range');
                     return;
                 }
@@ -293,7 +303,7 @@
                     seriesData[sId] = [];
                 });
 
-                messages.forEach(msg => {
+                msgs.forEach(msg => {
                     if (msg.t) {
                         const time = new Date(msg.t * 1000).getTime();
                         selectedSensors.forEach(sId => {
@@ -329,6 +339,7 @@
 
                 chart.setOption(option);
                 document.getElementById('chart').classList.remove('hidden');
+                resizeChart();  // Resize after unhiding
             });
         });
 
