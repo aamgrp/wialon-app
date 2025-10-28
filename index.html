@@ -252,13 +252,18 @@
 
             const sess = wialon.core.Session.getInstance();
             const ml = sess.getMessagesLoader();
-            ml.loadInterval(unitId, timeFrom, timeTo, flags, flagsMask, loadCount, (code, msgs) => {
-                console.log('Messages load callback:', { code, msgsLength: msgs ? msgs.length : 0 });
+            ml.loadInterval(unitId, timeFrom, timeTo, flags, flagsMask, loadCount, (code, response) => {
+                console.log('Messages load callback:', { code, responseType: typeof response, hasMsgs: response && response.msgs ? response.msgs.length : 0 });
                 if (code) {
                     alert('Failed to fetch data: ' + wialon.core.Errors.getErrorText(code));
                     return;
                 }
-                if (!msgs || msgs.length === 0) {
+                if (!response || response.error !== false) {
+                    alert('Invalid response from server');
+                    return;
+                }
+                const msgs = response.msgs || [];
+                if (msgs.length === 0) {
                     alert('No messages found');
                     return;
                 }
